@@ -93,7 +93,7 @@ def handle_client_callback(server, ip, port,conn, addr, routes):
 
 
 # Coroutine async/await for handling new client
-async def handle_client_coroutine(reader, writer):
+async def handle_client_coroutine(reader, writer, ip, port, routes):
     """
     Coroutine in async communication to initialize connection instance
     then delegates the client handling logic to it.
@@ -105,9 +105,19 @@ async def handle_client_coroutine(reader, writer):
     print("[Backend] Invoke handle_client_coroutine accepted connection from {}".format(addr))
 
     # Handle client in asynchronous mode
-    while True:
-          daemon = HttpAdapter(None, None, None, None, None)
-           await daemon.handle_client_coroutine(reader, writer)
+    daemon = HttpAdapter(ip, port, None, addr, routes)
+
+    try:
+        await daemon.handle_client_coroutine(reader, writer)
+    except Exception as e:
+        print("[Backend] Error handling client {}: {}".format(addr, e))
+    finally:
+        print("[Backend] Closing connection to {}".format(addr))
+        # Ensure the stream writer is properly closed to prevent memory leaks
+        writer.close()
+        await writer.wait_closed()
+        print("[Backend] Connection to {} securely closed".format(addr))
+
 
 async def async_server(ip="0.0.0.0", port=7000, routes={}):
     print("[Backend] async_server **ASYNC** listening on port {}".format(port))
@@ -119,10 +129,13 @@ async def async_server(ip="0.0.0.0", port=7000, routes={}):
                isCoFunc += "**ASYNC** "
             print("   + ('{}', '{}'): {}{}".format(key[0], key[1], isCoFunc, str(value)))
 
-    async_server = await asyncio.start_server(handle_client_coroutine, ip, port)
+    # Closure function to inject IP, port, and routes into the asyncio callback
+    async def client_connected_cb(reader, writer):
+        await handle_client_coroutine(reader, writer, ip, port, routes)
+
+    async_server = await asyncio.start_server(client_connected_cb, ip, port)
     async with async_server:
         await async_server.serve_forever()
-    return
 
 
 def run_backend(ip, port, routes):
@@ -148,6 +161,8 @@ def run_backend(ip, port, routes):
 
     # Process socket object
     server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    # Allow immediate reuse of the port to prevent EADDRINUSE errors during testing
+    server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
 
     try:
         server.bind((ip, port))
@@ -195,6 +210,13 @@ def run_backend(ip, port, routes):
             else:
                # Baseline multi-thread implementation
                #client_thread = threading.Thread...
+               # [COMPLETED] Multi-threading mechanism for concurrent connections
+               client_thread = threading.Thread(
+                   target=handle_client,
+                   args=(ip, port, conn, addr, routes)
+               )
+               client_thread.daemon = True      # Thread will close when the main program exits
+               client_thread.start()
 
 
     except socket.error as e:
