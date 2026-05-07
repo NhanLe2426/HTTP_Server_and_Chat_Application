@@ -109,7 +109,7 @@ class AsynapRous:
         :raise: Error if IP or port has not been configured.
         """
         if not self.ip or not self.port:
-            print("Rous app need to preapre address"
+            print("Rous app need to prepare address"
                   "by calling app.prepare_address(ip,port)")
 
         create_backend(self.ip, self.port, self.routes)
