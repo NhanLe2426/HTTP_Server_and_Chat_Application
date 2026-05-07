@@ -1,0 +1,11 @@
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Môi trường ảo (nếu sau này nhóm có dùng)
+venv/
+env/
+
+# IDE files
+.vscode/
