@@ -84,18 +84,33 @@ class HttpAdapter:
         #: Response
         self.response = Response()
 
-    def _process_hook_result(self, hook_result):
+    def _process_hook_result(self, hook_result, req, resp):
         """
         Helper method to format the application's return value into bytes.
-        Ensures consistent data formatting before attaching it to the HTTP Response.
+        Intercepts session cookies for the login route to set headers properly.
         """
+        body_bytes = b""
         if isinstance(hook_result, dict):
-            return json.dumps(hook_result).encode("utf-8")
+            body_bytes = json.dumps(hook_result).encode("utf-8")
         elif isinstance(hook_result, str):
-            return hook_result.encode("utf-8")
+            body_bytes =  hook_result.encode("utf-8")
         elif isinstance(hook_result, bytes):
-            return hook_result
-        return b""
+            body_bytes = hook_result
+
+        # Intercept logic: Extract session ID from login response and set it as a Cookie
+        if req.path == "/login" and req.method == "POST":
+            try:
+                data = json.loads(body_bytes.decode('utf-8'))
+                session_id = data.get("session")
+                if session_id:
+                    resp.set_cookie("session", session_id)
+                    # Remove session from body response for security
+                    del data["session"]
+                    body_bytes = json.dumps(data).encode("utf-8")
+            except Exception:
+                pass
+
+        return body_bytes
 
     def handle_client(self, conn, addr, routes):
         """
@@ -129,7 +144,45 @@ class HttpAdapter:
             #
             # TODO: handle for App hook here
             #
-            response = ""
+            #response = ""
+            import uuid
+            # Execute the API handler (e.g., login route) to get the raw result
+            hook_result = req.hook(headers=req.headers, body=req.body)
+            
+            # Format the hook result to ensure safe byte encoding and dictionary extraction
+            data_dict = {}
+            if isinstance(hook_result, dict):
+                data_dict = hook_result
+                body_bytes = json.dumps(hook_result).encode('utf-8')
+            elif isinstance(hook_result, str):
+                body_bytes = hook_result.encode('utf-8')
+                try:
+                    data_dict = json.loads(hook_result)
+                except Exception:
+                    pass
+            else:
+                body_bytes = hook_result if isinstance(hook_result, bytes) else b""
+
+            # --- SESSION INTERCEPTION FOR AUTHENTICATION (TASK 2) ---
+            if req.path == "/login" and req.method == "POST":
+                try:
+                    # Extract existing session or auto-generate a new unique session ID
+                    session_id = data_dict.get("session", uuid.uuid4().hex)
+                    
+                    # Inject the session directly into the cookies dictionary
+                    resp.cookies["session"] = session_id
+                    
+                    # Log to terminal for debugging and verification
+                    print(f"[HttpAdapter] Successfully injected session cookie: {session_id}")
+                except Exception as e:
+                    print(f"[HttpAdapter] Session generation error: {e}")
+            # --------------------------------------------------------
+
+            # Construct the HTTP payload (Headers + Body) and assign to response
+            response = resp.build_response(req, envelop_content=body_bytes)
+        else:
+            # Return 404 if no matching route is found
+            response = resp.build_notfound()
             
         #print("[HttpAdapter] Response content {}".format(response))
         conn.sendall(response)
@@ -171,19 +224,57 @@ class HttpAdapter:
                 #
                 # TODO: handle for App hook here
                 #
-                response = ""
-                # Dynamically determine if the mapped function is async or sync
+                import uuid
+                # Prepare exact arguments to pass to the API handler
+                kwargs = {"headers": req.headers, "body": req.body}
+
+                # Dynamically execute the API handler (async or sync)
                 if inspect.iscoroutinefunction(req.hook):
-                    hook_result = await req.hook(req)
+                    hook_result = await req.hook(**kwargs)
                 else:
-                    hook_result = req.hook(req)
+                    hook_result = req.hook(**kwargs)
 
-                # Store the formatted result inside the response object
-                resp._content = self._process_hook_result(hook_result)
+                # Format the hook result to ensure safe byte encoding
+                data_dict = {}
+                if isinstance(hook_result, dict):
+                    data_dict = hook_result
+                    body_bytes = json.dumps(hook_result).encode('utf-8')
+                elif isinstance(hook_result, str):
+                    body_bytes = hook_result.encode('utf-8')
+                    try:
+                        data_dict = json.loads(hook_result)
+                    except Exception:
+                        pass
+                else:
+                    body_bytes = hook_result if isinstance(hook_result, bytes) else b""
 
+                # --- SESSION INTERCEPTION FOR AUTHENTICATION ---
+                if req.path == "/login" and req.method == "POST":
+                    try:
+                        # Extract existing session or auto-generate a new unique session ID
+                        session_id = data_dict.get("session", uuid.uuid4().hex)
+                        
+                        # Inject the session directly into the cookies dictionary
+                        resp.cookies["session"] = session_id
+                        
+                        # Log to terminal for debugging and verification
+                        print(f"[HttpAdapter] Successfully injected session cookie: {session_id}")
+                    except Exception as e:
+                        print(f"[HttpAdapter] Session generation error: {e}")
+                # --------------------------------------------------------
+
+                # Construct the HTTP payload (Headers + Body)
+                response = resp.build_response(req, envelop_content=body_bytes)
+            else:
+                # Return 404 if no matching route is found
+                response = resp.build_notfound()
+
+            # Bulletproof check: Ensure payload is bytes before transmitting
+            if isinstance(response, str):
+                response = response.encode('utf-8')
             # Build response
             #print("[HttpAdapter] Start **ASYNC** build_response with type {}".format(type(req)))
-            response = resp.build_response(req)
+            # response = resp.build_response(req)
 
             # Send all the response asynchronously
             writer.write(response)

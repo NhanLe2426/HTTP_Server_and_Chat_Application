@@ -54,9 +54,9 @@ from .dictionary import CaseInsensitiveDict
 import selectors
 sel = selectors.DefaultSelector()
 
-mode_async = "callback"
-#mode_async = "coroutine"
-mode_async = "threading"
+#mode_async = "callback"
+mode_async = "coroutine"
+#mode_async = "threading"
 
 def handle_client(ip, port, conn, addr, routes):
     """
