@@ -41,6 +41,9 @@ PROXY_PASS = {
     "app2.local": ('192.168.56.103', 9002),
 }
 
+# Global dictionary to track the last used server index for Round-Robin load balancing
+ROUND_ROBIN_STATE = {}
+
 
 def forward_request(host, port, request):
     """
@@ -55,16 +58,22 @@ def forward_request(host, port, request):
     """
 
     backend = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    # Optional Enhancement: Set timeout to prevent proxy from hanging if backend is slow
+    backend.settimeout(2.0)
 
     try:
         backend.connect((host, port))
         backend.sendall(request.encode())
         response = b""
         while True:
-            chunk = backend.recv(4096)
-            if not chunk:
+            try:
+                chunk = backend.recv(4096)
+                if not chunk:
+                    break
+                response += chunk
+            except socket.timeout:
+                print(f"[Proxy] Warning: Read timeout from backend {host}:{port}")
                 break
-            response += chunk
         return response
     except socket.error as e:
       print("Socket error: {}".format(e))
@@ -76,6 +85,9 @@ def forward_request(host, port, request):
             "\r\n"
             "404 Not Found"
         ).encode('utf-8')
+    finally:
+        # Ensure the socket is properly closed after forwarding
+        backend.close()
 
 
 def resolve_routing_policy(hostname, routes):
@@ -87,6 +99,7 @@ def resolve_routing_policy(hostname, routes):
     :params port (int): port number of the request target server.
     :params routes (dict): dictionary mapping hostnames and location.
     """
+    global ROUND_ROBIN_STATE
 
     print(hostname)
     proxy_map, policy = routes.get(hostname,('127.0.0.1:9000','round-robin'))
@@ -105,18 +118,34 @@ def resolve_routing_policy(hostname, routes):
             # Use a dummy host to raise an invalid connection
             proxy_host = '127.0.0.1'
             proxy_port = '9000'
-        elif len(value) == 1:
-            proxy_host, proxy_port = proxy_map[0].split(":", 2)
-        #elif: # apply the policy handling 
+        elif len(proxy_map) == 1:
+            proxy_host, proxy_port = proxy_map[0].split(":", 1)
+        #elif: # apply the policy handling for multiple backend servers
         #   proxy_map
         #   policy
         else:
             # Out-of-handle mapped host
-            proxy_host = '127.0.0.1'
-            proxy_port = '9000'
+            if policy == 'round-robin' or policy == 'round':
+                if hostname not in ROUND_ROBIN_STATE:
+                    ROUND_ROBIN_STATE[hostname] = 0
+
+                # Get the current index position
+                current_idx = ROUND_ROBIN_STATE[hostname]
+                # Choose server based on the current index
+                target = proxy_map[current_idx]
+                proxy_host, proxy_port = target.split(":", 1)
+
+                print("[Load Balancer] Round-Robin selected server: {}".format(target))
+                
+                # Update the state for the next incoming request
+                ROUND_ROBIN_STATE[hostname] = (current_idx + 1) % len(proxy_map)
+            else:
+                # Fallback to the first server if policy is unknown
+                proxy_host, proxy_port = proxy_map[0].split(":", 1)
+            
     else:
         print("[Proxy] resolve route of hostname {} is a singulair to".format(hostname))
-        proxy_host, proxy_port = proxy_map.split(":", 2)
+        proxy_host, proxy_port = proxy_map.split(":", 1)
 
     return proxy_host, proxy_port
 
@@ -139,12 +168,19 @@ def handle_client(ip, port, conn, addr, routes):
     :params routes (dict): dictionary mapping hostnames and location.
     """
 
-    request = conn.recv(1024).decode()
+    # request = conn.recv(1024).decode()
+    # Kept the decode method to process the string request
+    request = conn.recv(4096).decode('utf-8', errors='ignore')
+    if not request:
+        return
 
     # Extract hostname
+    hostname = ""
     for line in request.splitlines():
         if line.lower().startswith('host:'):
-            hostname = line.split(':', 1)[1].strip()
+            raw_host = line.split(':', 1)[1].strip()
+            # Remove port number from host if present to match the routes dictionary keys
+            hostname = raw_host.split(':')[0] if ':' in raw_host else raw_host
 
     print("[Proxy] {} at Host: {}".format(addr, hostname))
 
@@ -188,6 +224,9 @@ def run_proxy(ip, port, routes):
 
     proxy = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 
+    # Allow port to be reused immediately after restart
+    proxy.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+
     try:
         proxy.bind((ip, port))
         proxy.listen(50)
@@ -199,8 +238,14 @@ def run_proxy(ip, port, routes):
             #        using multi-thread programming with the
             #        provided handle_client routine
             #
+            proxy_thread = threading.Thread(
+                target=handle_client,
+                args=(ip, port, conn, addr, routes)
+            )
+            proxy_thread.daemon = True
+            proxy_thread.start()
     except socket.error as e:
-      print("Socket error: {}".format(e))
+        print("Socket error: {}".format(e))
 
 def create_proxy(ip, port, routes):
     """

@@ -25,6 +25,7 @@ import importlib.util
 import json
 
 from   daemon import AsynapRous
+from    .auth import require_auth
 
 app = AsynapRous()
 
@@ -40,11 +41,35 @@ def login(headers="guest", body="anonymous"):
     :param body (str): The request body or login payload.
     """
     print("[SampleApp] Logging in {} to {}".format(headers, body))
-    data = {"message": "Welcome to the RESTful TCP WebApp"}
+    try:
+        # Parse the incoming JSON payload safely
+        data = json.loads(body) if isinstance(body, str) else body
+        
+        username = data.get("username")
+        password = data.get("password")
+
+        # Validate credentials (simulating a database check)
+        if username == "admin" and password == "123":
+            # Authentication successful
+            data_response = {"message": "login success"}
+        else:
+            # Authentication failed due to invalid credentials
+            data_response = {"error": "Unauthorized"}
+            
+        # Convert dictionary to JSON string and encode to bytes
+        json_str = json.dumps(data_response)
+        return json_str.encode("utf-8")
+        
+    except Exception as e:
+        # Handle cases where the client sends a malformed JSON body
+        data_response = {"error": "Invalid JSON format"}
+        json_str = json.dumps(data_response)
+        return json_str.encode("utf-8")
+    #data = {"message": "Welcome to the RESTful TCP WebApp"}
 
     # Convert to JSON string
-    json_str = json.dumps(data)
-    return (json_str.encode("utf-8"))
+    #json_str = json.dumps(data)
+    #return (json_str.encode("utf-8"))
 
 @app.route("/echo", methods=["POST"])
 def echo(headers="guest", body="anonymous"):
@@ -64,6 +89,7 @@ def echo(headers="guest", body="anonymous"):
 
 
 @app.route('/hello', methods=['PUT'])
+@require_auth
 async def hello(headers, body):
     """
     Handle greeting via PUT request.

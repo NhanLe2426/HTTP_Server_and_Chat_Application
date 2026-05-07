@@ -26,6 +26,7 @@ from .dictionary import CaseInsensitiveDict
 
 import asyncio
 import inspect
+import json
 
 class HttpAdapter:
     """
@@ -83,6 +84,34 @@ class HttpAdapter:
         #: Response
         self.response = Response()
 
+    def _process_hook_result(self, hook_result, req, resp):
+        """
+        Helper method to format the application's return value into bytes.
+        Intercepts session cookies for the login route to set headers properly.
+        """
+        body_bytes = b""
+        if isinstance(hook_result, dict):
+            body_bytes = json.dumps(hook_result).encode("utf-8")
+        elif isinstance(hook_result, str):
+            body_bytes =  hook_result.encode("utf-8")
+        elif isinstance(hook_result, bytes):
+            body_bytes = hook_result
+
+        # Intercept logic: Extract session ID from login response and set it as a Cookie
+        if req.path == "/login" and req.method == "POST":
+            try:
+                data = json.loads(body_bytes.decode('utf-8'))
+                session_id = data.get("session")
+                if session_id:
+                    resp.set_cookie("session", session_id)
+                    # Remove session from body response for security
+                    del data["session"]
+                    body_bytes = json.dumps(data).encode("utf-8")
+            except Exception:
+                pass
+
+        return body_bytes
+
     def handle_client(self, conn, addr, routes):
         """
         Handle an incoming client connection.
@@ -115,8 +144,46 @@ class HttpAdapter:
             #
             # TODO: handle for App hook here
             #
-            response = ""
+            #response = ""
+            import uuid
+            # Execute the API handler (e.g., login route) to get the raw result
+            hook_result = req.hook(headers=req.headers, body=req.body)
+            
+            # Format the hook result to ensure safe byte encoding and dictionary extraction
+            data_dict = {}
+            if isinstance(hook_result, dict):
+                data_dict = hook_result
+                body_bytes = json.dumps(hook_result).encode('utf-8')
+            elif isinstance(hook_result, str):
+                body_bytes = hook_result.encode('utf-8')
+                try:
+                    data_dict = json.loads(hook_result)
+                except Exception:
+                    pass
+            else:
+                body_bytes = hook_result if isinstance(hook_result, bytes) else b""
 
+            # --- SESSION INTERCEPTION FOR AUTHENTICATION (TASK 2) ---
+            if req.path == "/login" and req.method == "POST":
+                try:
+                    # Extract existing session or auto-generate a new unique session ID
+                    session_id = data_dict.get("session", uuid.uuid4().hex)
+                    
+                    # Inject the session directly into the cookies dictionary
+                    resp.cookies["session"] = session_id
+                    
+                    # Log to terminal for debugging and verification
+                    print(f"[HttpAdapter] Successfully injected session cookie: {session_id}")
+                except Exception as e:
+                    print(f"[HttpAdapter] Session generation error: {e}")
+            # --------------------------------------------------------
+
+            # Construct the HTTP payload (Headers + Body) and assign to response
+            response = resp.build_response(req, envelop_content=body_bytes)
+        else:
+            # Return 404 if no matching route is found
+            response = resp.build_notfound()
+            
         #print("[HttpAdapter] Response content {}".format(response))
         conn.sendall(response)
         conn.close()
@@ -133,103 +200,161 @@ class HttpAdapter:
         :param addr (tuple): The client's address.
         :param routes (dict): The route mapping for dispatching requests.
         """
+        addr = writer.get_extra_info("peername")
+        print("[HttpAdapter] Invoke handle_client_coroutine connection {})".format(addr))
+        
         # Request handler
         req = self.request
         # Response handler
         resp = self.response
 
-        print("[HttpAdapter] Invoke handle_client_coroutine connection {})".format(addr))
-        addr = writer.get_extra_info("peername")
-
         # TODO Handle the request asynchronously
-        msg = await reader.read(1024)
+        try:
+            # Read the raw request data asynchronously
+            msg = await reader.read(4096)
+            if not msg:
+                print("[HttpAdapter] Empty payload received from {}".format(addr))
+                return
+            
+            # Decoding the raw request data and preparing the Request object
+            req.prepare(msg.decode("utf-8", errors="ignore"), routes=self.routes)
 
+            # Handle request hook
+            if req.hook:
+                #
+                # TODO: handle for App hook here
+                #
+                import uuid
+                # Prepare exact arguments to pass to the API handler
+                kwargs = {"headers": req.headers, "body": req.body}
 
-        req.prepare(msg.decode("utf-8"), routes={})
+                # Dynamically execute the API handler (async or sync)
+                if inspect.iscoroutinefunction(req.hook):
+                    hook_result = await req.hook(**kwargs)
+                else:
+                    hook_result = req.hook(**kwargs)
 
-        # Handle request hook
-        if req.hook:
-            #
-            # TODO: handle for App hook here
-            #
-            response = ""
+                # Format the hook result to ensure safe byte encoding
+                data_dict = {}
+                if isinstance(hook_result, dict):
+                    data_dict = hook_result
+                    body_bytes = json.dumps(hook_result).encode('utf-8')
+                elif isinstance(hook_result, str):
+                    body_bytes = hook_result.encode('utf-8')
+                    try:
+                        data_dict = json.loads(hook_result)
+                    except Exception:
+                        pass
+                else:
+                    body_bytes = hook_result if isinstance(hook_result, bytes) else b""
 
-        # Build response
-        #print("[HttpAdapter] Start **ASYNC** build_response with type {}".format(type(req)))
-        response = resp.build_response(req)
+                # --- SESSION INTERCEPTION FOR AUTHENTICATION ---
+                if req.path == "/login" and req.method == "POST":
+                    try:
+                        # Extract existing session or auto-generate a new unique session ID
+                        session_id = data_dict.get("session", uuid.uuid4().hex)
+                        
+                        # Inject the session directly into the cookies dictionary
+                        resp.cookies["session"] = session_id
+                        
+                        # Log to terminal for debugging and verification
+                        print(f"[HttpAdapter] Successfully injected session cookie: {session_id}")
+                    except Exception as e:
+                        print(f"[HttpAdapter] Session generation error: {e}")
+                # --------------------------------------------------------
 
-        # Send all the response asynchronously
-        writer.write(response)
-        await writer.drain()
+                # Construct the HTTP payload (Headers + Body)
+                response = resp.build_response(req, envelop_content=body_bytes)
+            else:
+                # Return 404 if no matching route is found
+                response = resp.build_notfound()
 
-    @property
-    def extract_cookies(self, req, resp):
-        """
-        Build cookies from the :class:`Request <Request>` headers.
+            # Bulletproof check: Ensure payload is bytes before transmitting
+            if isinstance(response, str):
+                response = response.encode('utf-8')
+            # Build response
+            #print("[HttpAdapter] Start **ASYNC** build_response with type {}".format(type(req)))
+            # response = resp.build_response(req)
 
-        :param req:(Request) The :class:`Request <Request>` object.
-        :param resp: (Response) The res:class:`Response <Response>` object.
-        :rtype: cookies - A dictionary of cookie key-value pairs.
-        """
-        cookies = {}
-        for header in headers:
-            if header.startswith("Cookie:"):
-                cookie_str = header.split(":", 1)[1].strip()
-                for pair in cookie_str.split(";"):
-                    key, value = pair.strip().split("=")
-                    cookies[key] = value
-        return cookies
+            # Send all the response asynchronously
+            writer.write(response)
+            await writer.drain()
+        
+        except Exception as e:
+            print("[HttpAdapter] Error handling client {}: {}".format(addr, e))
 
-    def build_response(self, req, resp):
-        """Builds a :class:`Response <Response>` object 
+    # =========================================================================
+    # ORIGINAL SKELETON METHODS (Preserved for structural compliance)
+    # =========================================================================
 
-        :param req: The :class:`Request <Request>` used to generate the response.
-        :param resp: The  response object.
-        :rtype: Response
-        """
-        response = Response()
+    # @property
+    # def extract_cookies(self, req, resp):
+    #    """
+    #    Build cookies from the :class:`Request <Request>` headers.
+    #
+    #    :param req:(Request) The :class:`Request <Request>` object.
+    #    :param resp: (Response) The res:class:`Response <Response>` object.
+    #    :rtype: cookies - A dictionary of cookie key-value pairs.
+    #    """
+    #    cookies = {}
+    #    for header in headers:
+    #        if header.startswith("Cookie:"):
+    #            cookie_str = header.split(":", 1)[1].strip()
+    #            for pair in cookie_str.split(";"):
+    #                key, value = pair.strip().split("=")
+    #                cookies[key] = value
+    #    return cookies
 
-        # Set encoding.
-        response.encoding = get_encoding_from_headers(response.headers)
-        response.raw = resp
-        response.reason = response.raw.reason
+    # def build_response(self, req, resp):
+    #    """Builds a :class:`Response <Response>` object 
+    #
+    #    :param req: The :class:`Request <Request>` used to generate the response.
+    #    :param resp: The  response object.
+    #    :rtype: Response
+    #    """
+    #    response = Response()
+    #
+    #    # Set encoding.
+    #    response.encoding = get_encoding_from_headers(response.headers)
+    #    response.raw = resp
+    #    response.reason = response.raw.reason
+    #
+    #    if isinstance(req.url, bytes):
+    #        response.url = req.url.decode("utf-8")
+    #    else:
+    #        response.url = req.url
+    #
+    #    # Add new cookies from the server.
+    #    response.cookies = extract_cookies(req)
+    #
+    #    # Give the Response some context.
+    #    response.request = req
+    #    response.connection = self
+    #
+    #    return response
 
-        if isinstance(req.url, bytes):
-            response.url = req.url.decode("utf-8")
-        else:
-            response.url = req.url
-
-        # Add new cookies from the server.
-        response.cookies = extract_cookies(req)
-
-        # Give the Response some context.
-        response.request = req
-        response.connection = self
-
-        return response
-
-    def build_json_response(self, req, resp):
-        """Builds a :class:`Response <Response>` object from JSON data
-
-        :param req: The :class:`Request <Request>` used to generate the response.
-        :param resp: The  response object.
-        :rtype: Response
-        """
-        response = Response(req)
-
-        # Set encoding.
-        response.raw = resp
-
-        if isinstance(req.url, bytes):
-            response.url = req.url.decode("utf-8")
-        else:
-            response.url = req.url
-
-        # Give the Response some context.
-        response.request = req
-        response.connection = self
-
-        return response
+    # def build_json_response(self, req, resp):
+    #    """Builds a :class:`Response <Response>` object from JSON data
+    #
+    #    :param req: The :class:`Request <Request>` used to generate the response.
+    #    :param resp: The  response object.
+    #    :rtype: Response
+    #    """
+    #    response = Response(req)
+    #
+    #    # Set encoding.
+    #    response.raw = resp
+    #
+    #    if isinstance(req.url, bytes):
+    #        response.url = req.url.decode("utf-8")
+    #    else:
+    #        response.url = req.url
+    #
+    #    # Give the Response some context.
+    #    response.request = req
+    #    response.connection = self
+    #
+    #    return response
 
 
     # def get_connection(self, url, proxies=None):
@@ -290,7 +415,11 @@ class HttpAdapter:
         #
         username, password = ("user1", "password")
 
-        if username:
-            headers["Proxy-Authorization"] = (username, password)
+        if username and password:
+            import base64
+            # Standard HTTP headers require base64 encoding for Basic Auth
+            credentials = f"{username}:{password}"
+            encoded_credentials = base64.b64encode(credentials.encode('utf-8')).decode('utf-8')
+            headers["Proxy-Authorization"] = f"Basic {encoded_credentials}"
 
         return headers

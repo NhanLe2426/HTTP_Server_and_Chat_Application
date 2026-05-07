@@ -10,7 +10,8 @@
 # while attending the course
 #
 
-from urlparse import urlparse
+# from urlparse import urlparse
+from urllib.parse import urlparse, unquote
 
 def get_auth_from_url(url):
     """Given a url with authentication components, extract them into a tuple of
@@ -21,6 +22,7 @@ def get_auth_from_url(url):
     parsed = urlparse(url)
 
     try:
+        # Decode URL-encoded characters in credentials
         auth = (unquote(parsed.username), unquote(parsed.password))
     except (AttributeError, TypeError):
         auth = ("", "")
