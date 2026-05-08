@@ -11,7 +11,7 @@ sys.path.append(os.path.dirname(current_dir))
 
 from daemon.asynaprous import AsynapRous
 
-MY_NAME = sys.argv[1] if len(sys.argv) > 1 else "Ken"
+MY_NAME = sys.argv[1] if len(sys.argv) > 1 else "Nhan"
 MY_PORT = int(sys.argv[2]) if len(sys.argv) > 2 else 5001
 MY_IP = "127.0.0.1"
 TRACKER_URL = "http://127.0.0.1:9000"
