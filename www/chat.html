@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AsynapRous Web Chat</title>
+    <link rel="stylesheet" href="css/styles.css">
+    <style>
+        /* Specific styling for the chat interface */
+        #chat-box {
+            height: 350px;
+            overflow-y: scroll;
+            border: 1px solid #ccc;
+            padding: 15px;
+            text-align: left;
+            margin-bottom: 15px;
+            background: #fafafa;
+            border-radius: 5px;
+        }
+        .msg-line { margin-bottom: 8px; }
+        .time-stamp { color: #888; font-size: 0.8em; margin-right: 5px; }
+        .sender-name { color: #38488f; font-weight: bold; margin-right: 5px; }
+        .input-group { display: flex; gap: 10px; justify-content: center; }
+        #msg-input { width: 70%; padding: 8px; border: 1px solid #ccc; border-radius: 4px; }
+        button { padding: 8px 20px; cursor: pointer; background-color: #38488f; color: white; border: none; border-radius: 4px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h2>P2P Web Chat Room</h2>
+        
+        <div id="chat-box"></div>
+        
+        <div class="input-group">
+            <input type="text" id="msg-input" placeholder="Type your message here..." autocomplete="off">
+            <button onclick="sendMessage()">Send</button>
+        </div>
+    </div>
+
+    <script>
+        // Set the current username. This could dynamically come from the session later.
+        const currentUser = "Nhân";
+
+        async function fetchMessages() {
+            /*
+             * Continuously polls the backend to retrieve the latest chat history.
+             * Updates the DOM to display incoming messages.
+             */
+            try {
+                const response = await fetch('/chat/messages', { method: 'GET' });
+                
+                if (response.ok) {
+                    const data = await response.json();
+                    const chatBox = document.getElementById('chat-box');
+                    
+                    // Clear current content and re-render the updated chat history
+                    chatBox.innerHTML = ''; 
+                    data.messages.forEach(msg => {
+                        const msgHtml = `<div class="msg-line">
+                            <span class="time-stamp">[${msg.timestamp}]</span>
+                            <span class="sender-name">${msg.sender}:</span>
+                            <span class="msg-content">${msg.text}</span>
+                        </div>`;
+                        chatBox.innerHTML += msgHtml;
+                    });
+                    
+                    // Auto-scroll to the newest message at the bottom
+                    chatBox.scrollTop = chatBox.scrollHeight;
+                }
+            } catch (error) {
+                console.error("Error fetching messages:", error);
+            }
+        }
+
+        async function sendMessage() {
+            /*
+             * Captures the user input and transmits the text payload to the backend.
+             */
+            const input = document.getElementById('msg-input');
+            const text = input.value.trim();
+            
+            // Prevent empty submissions
+            if (!text) return;
+
+            const payload = {
+                username: currentUser,
+                text: text
+            };
+
+            try {
+                const response = await fetch('/chat/send', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+
+                if (response.ok) {
+                    // Clear the input field upon successful transmission
+                    input.value = ''; 
+                    // Immediately trigger a UI refresh to show the new message
+                    fetchMessages(); 
+                } else {
+                    alert("Failed to send message. Please ensure you are logged in.");
+                }
+            } catch (error) {
+                console.error("Error sending message:", error);
+            }
+        }
+
+        // Establish long-polling: Fetch new messages from the server every 2 seconds
+        setInterval(fetchMessages, 2000);
+        
+        // Initial fetch upon page load
+        fetchMessages();
+    </script>
+</body>
+</html>
