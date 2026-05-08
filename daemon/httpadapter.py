@@ -263,6 +263,21 @@ class HttpAdapter:
                         print(f"[HttpAdapter] Session generation error: {e}")
                 # --------------------------------------------------------
 
+                # --- ADDITION: MIME TYPE DETECTION FOR STATIC FILES ---
+                # Initialize the headers dictionary if it does not exist
+                if not resp.headers:
+                    resp.headers = CaseInsensitiveDict()
+                
+                # Check the file extension in the URL path to assign the correct Content-Type
+                if req.path.endswith(".html"):
+                    resp.headers["Content-Type"] = "text/html; charset=utf-8"
+                elif req.path.endswith(".css"):
+                    resp.headers["Content-Type"] = "text/css; charset=utf-8"
+                else:
+                    # Default to JSON for other API responses
+                    resp.headers["Content-Type"] = "application/json; charset=utf-8"
+                # ----------------------------------------------------
+
                 # Construct the HTTP payload (Headers + Body)
                 response = resp.build_response(req, envelop_content=body_bytes)
             else:

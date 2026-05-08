@@ -1,0 +1,17 @@
+import sys
+import os
+sys.path.append(os.path.abspath(os.path.dirname(__file__)))
+
+from   daemon import AsynapRous
+from   daemon import Response
+
+app = AsynapRous()
+
+@app.route("/", methods=['GET'])
+def index(headers="guest", body="anonymous"):
+    return b"BACKEND 2 WORKING"
+
+if __name__ == "__main__":
+    # Run on port 9001
+    app.prepare_address(ip="127.0.0.1", port=9003)
+    app.run()
