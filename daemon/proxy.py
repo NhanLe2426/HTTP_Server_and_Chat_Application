@@ -101,31 +101,31 @@ def resolve_routing_policy(hostname, routes):
     """
     global ROUND_ROBIN_STATE
 
-    print(hostname)
-    proxy_map, policy = routes.get(hostname,('127.0.0.1:9000','round-robin'))
-    print(proxy_map)
-    print(policy)
+    print(f"[Proxy] Resolving hostname: {hostname}")
+    
+    # Check if hostname exists in routes
+    if hostname not in routes:
+        print(f"[Proxy] Hostname '{hostname}' not in routes, cannot resolve")
+        return '', ''
+    
+    proxy_map, policy = routes.get(hostname)
+    print(f"[Proxy] proxy_map: {proxy_map}, policy: {policy}")
 
     proxy_host = ''
     proxy_port = '9000'
+    
+    # proxy_map should always be a list now
     if isinstance(proxy_map, list):
         if len(proxy_map) == 0:
-            print("[Proxy] Emtpy resolved routing of hostname {}".format(hostname))
-            print("Empty proxy_map result")
-            # TODO: implement the error handling for non mapped host
-            #       the policy is design by team, but it can be 
-            #       basic default host in your self-defined system
-            # Use a dummy host to raise an invalid connection
-            proxy_host = '127.0.0.1'
-            proxy_port = '9000'
+            print(f"[Proxy] Empty backend list for hostname '{hostname}'")
+            return '', ''
         elif len(proxy_map) == 1:
+            # Single backend
             proxy_host, proxy_port = proxy_map[0].split(":", 1)
-        #elif: # apply the policy handling for multiple backend servers
-        #   proxy_map
-        #   policy
+            print(f"[Proxy] Single backend selected: {proxy_host}:{proxy_port}")
         else:
-            # Out-of-handle mapped host
-            if policy == 'round-robin' or policy == 'round':
+            # Multiple backends - apply load balancing policy
+            if policy in ['round-robin', 'round']:
                 if hostname not in ROUND_ROBIN_STATE:
                     ROUND_ROBIN_STATE[hostname] = 0
 
@@ -135,17 +135,17 @@ def resolve_routing_policy(hostname, routes):
                 target = proxy_map[current_idx]
                 proxy_host, proxy_port = target.split(":", 1)
 
-                print("[Load Balancer] Round-Robin selected server: {}".format(target))
+                print(f"[Load Balancer] Round-Robin selected server: {target} (index {current_idx})")
                 
                 # Update the state for the next incoming request
                 ROUND_ROBIN_STATE[hostname] = (current_idx + 1) % len(proxy_map)
             else:
                 # Fallback to the first server if policy is unknown
                 proxy_host, proxy_port = proxy_map[0].split(":", 1)
-            
+                print(f"[Proxy] Unknown policy '{policy}', using first backend: {proxy_host}:{proxy_port}")
     else:
-        print("[Proxy] resolve route of hostname {} is a singulair to".format(hostname))
-        proxy_host, proxy_port = proxy_map.split(":", 1)
+        print(f"[Proxy] ERROR: proxy_map is not a list, it's {type(proxy_map)}")
+        return '', ''
 
     return proxy_host, proxy_port
 
@@ -176,13 +176,28 @@ def handle_client(ip, port, conn, addr, routes):
 
     # Extract hostname
     hostname = ""
+    hostname_only = ""
     for line in request.splitlines():
         if line.lower().startswith('host:'):
             raw_host = line.split(':', 1)[1].strip()
-            # Remove port number from host if present to match the routes dictionary keys
-            hostname = raw_host.split(':')[0] if ':' in raw_host else raw_host
+            # Extract just the hostname part (without port)
+            hostname_only = raw_host.split(':')[0] if ':' in raw_host else raw_host
+            # Keep the full host value for matching
+            hostname = raw_host
+            break
 
-    print("[Proxy] {} at Host: {}".format(addr, hostname))
+    print("[Proxy] {} at Host: {} (hostname_only: {})".format(addr, hostname, hostname_only))
+
+    # Try to find a route: first with full hostname, then without port
+    if hostname not in routes:
+        if hostname_only in routes:
+            hostname = hostname_only
+        else:
+            # If no match found, try localhost
+            if "localhost" in routes:
+                hostname = "localhost"
+            elif "127.0.0.1" in routes:
+                hostname = "127.0.0.1"
 
     # Resolve the matching destination in routes and need conver port
     # to integer value

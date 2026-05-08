@@ -149,37 +149,43 @@ class HttpAdapter:
             # Execute the API handler (e.g., login route) to get the raw result
             hook_result = req.hook(headers=req.headers, body=req.body)
             
-            # Format the hook result to ensure safe byte encoding and dictionary extraction
-            data_dict = {}
-            if isinstance(hook_result, dict):
-                data_dict = hook_result
-                body_bytes = json.dumps(hook_result).encode('utf-8')
-            elif isinstance(hook_result, str):
-                body_bytes = hook_result.encode('utf-8')
-                try:
-                    data_dict = json.loads(hook_result)
-                except Exception:
-                    pass
+            # Check if the hook_result is a Response object
+            if isinstance(hook_result, Response):
+                # If it's already a Response object, use it directly
+                print("[HttpAdapter] Hook returned Response object, using it directly")
+                response = hook_result.build_response_header(req) + hook_result._content
             else:
-                body_bytes = hook_result if isinstance(hook_result, bytes) else b""
+                # Format the hook result to ensure safe byte encoding and dictionary extraction
+                data_dict = {}
+                if isinstance(hook_result, dict):
+                    data_dict = hook_result
+                    body_bytes = json.dumps(hook_result).encode('utf-8')
+                elif isinstance(hook_result, str):
+                    body_bytes = hook_result.encode('utf-8')
+                    try:
+                        data_dict = json.loads(hook_result)
+                    except Exception:
+                        pass
+                else:
+                    body_bytes = hook_result if isinstance(hook_result, bytes) else b""
 
-            # --- SESSION INTERCEPTION FOR AUTHENTICATION (TASK 2) ---
-            if req.path == "/login" and req.method == "POST":
-                try:
-                    # Extract existing session or auto-generate a new unique session ID
-                    session_id = data_dict.get("session", uuid.uuid4().hex)
-                    
-                    # Inject the session directly into the cookies dictionary
-                    resp.cookies["session"] = session_id
-                    
-                    # Log to terminal for debugging and verification
-                    print(f"[HttpAdapter] Successfully injected session cookie: {session_id}")
-                except Exception as e:
-                    print(f"[HttpAdapter] Session generation error: {e}")
-            # --------------------------------------------------------
+                # --- SESSION INTERCEPTION FOR AUTHENTICATION (TASK 2) ---
+                if req.path == "/login" and req.method == "POST":
+                    try:
+                        # Extract existing session or auto-generate a new unique session ID
+                        session_id = data_dict.get("session", uuid.uuid4().hex)
+                        
+                        # Inject the session directly into the cookies dictionary
+                        resp.cookies["session"] = session_id
+                        
+                        # Log to terminal for debugging and verification
+                        print(f"[HttpAdapter] Successfully injected session cookie: {session_id}")
+                    except Exception as e:
+                        print(f"[HttpAdapter] Session generation error: {e}")
+                # --------------------------------------------------------
 
-            # Construct the HTTP payload (Headers + Body) and assign to response
-            response = resp.build_response(req, envelop_content=body_bytes)
+                # Construct the HTTP payload (Headers + Body) and assign to response
+                response = resp.build_response(req, envelop_content=body_bytes)
         else:
             # Return 404 if no matching route is found
             response = resp.build_notfound()

@@ -13,5 +13,5 @@ def index(headers="guest", body="anonymous"):
 
 if __name__ == "__main__":
     # Run on port 9001
-    app.prepare_address(ip="127.0.0.1", port=9003)
+    app.prepare_address(ip="0.0.0.0", port=9003)
     app.run()

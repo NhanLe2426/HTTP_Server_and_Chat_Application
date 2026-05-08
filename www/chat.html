@@ -4,25 +4,67 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>AsynapRous Web Chat</title>
-    <link rel="stylesheet" href="css/styles.css">
     <style>
-        /* Specific styling for the chat interface */
+        /* CSS Reset and layout fixes */
+        body { 
+            font-family: Arial, sans-serif; 
+            background-color: #f0f2f5; 
+            margin: 0; 
+            padding: 20px; 
+        }
+        .container {
+            max-width: 600px;
+            margin: 0 auto;
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+            box-sizing: border-box; /* Force padding to stay inside width */
+        }
+        h2 { text-align: center; color: #333; margin-top: 0; }
+        
         #chat-box {
             height: 350px;
             overflow-y: scroll;
-            border: 1px solid #ccc;
+            border: 1px solid #ddd;
             padding: 15px;
             text-align: left;
-            margin-bottom: 15px;
+            margin-bottom: 20px;
             background: #fafafa;
             border-radius: 5px;
+            box-sizing: border-box; /* Prevent overflow */
+            width: 100%;
         }
-        .msg-line { margin-bottom: 8px; }
+        .msg-line { margin-bottom: 10px; line-height: 1.4; word-wrap: break-word; }
         .time-stamp { color: #888; font-size: 0.8em; margin-right: 5px; }
         .sender-name { color: #38488f; font-weight: bold; margin-right: 5px; }
-        .input-group { display: flex; gap: 10px; justify-content: center; }
-        #msg-input { width: 70%; padding: 8px; border: 1px solid #ccc; border-radius: 4px; }
-        button { padding: 8px 20px; cursor: pointer; background-color: #38488f; color: white; border: none; border-radius: 4px; }
+        .msg-content { color: #333; }
+        
+        .input-group { 
+            display: flex; 
+            gap: 10px; 
+            width: 100%; 
+            box-sizing: border-box; 
+        }
+        #msg-input { 
+            flex: 1; /* Auto-expand to fill available space */
+            padding: 12px; 
+            border: 1px solid #ccc; 
+            border-radius: 5px; 
+            box-sizing: border-box; 
+            font-size: 14px;
+        }
+        button { 
+            padding: 12px 25px; 
+            cursor: pointer; 
+            background-color: #38488f; 
+            color: white; 
+            border: none; 
+            border-radius: 5px; 
+            font-weight: bold; 
+            transition: background 0.2s;
+        }
+        button:hover { background-color: #2c3970; }
     </style>
 </head>
 <body>
@@ -38,13 +80,13 @@
     </div>
 
     <script>
-        // Set the current username. This could dynamically come from the session later.
-        const currentUser = "Nhân";
+        // Prompt for username on load, store in sessionStorage for current tab
+        const currentUser = sessionStorage.getItem('chatUser') || prompt("Enter your chat name:") || "Guest";
+        sessionStorage.setItem('chatUser', currentUser);
 
         async function fetchMessages() {
             /*
-             * Continuously polls the backend to retrieve the latest chat history.
-             * Updates the DOM to display incoming messages.
+             * Fetch latest messages from the server via GET request
              */
             try {
                 const response = await fetch('/chat/messages', { method: 'GET' });
@@ -53,7 +95,6 @@
                     const data = await response.json();
                     const chatBox = document.getElementById('chat-box');
                     
-                    // Clear current content and re-render the updated chat history
                     chatBox.innerHTML = ''; 
                     data.messages.forEach(msg => {
                         const msgHtml = `<div class="msg-line">
@@ -64,22 +105,20 @@
                         chatBox.innerHTML += msgHtml;
                     });
                     
-                    // Auto-scroll to the newest message at the bottom
                     chatBox.scrollTop = chatBox.scrollHeight;
                 }
             } catch (error) {
-                console.error("Error fetching messages:", error);
+                console.error("Fetch error:", error);
             }
         }
 
         async function sendMessage() {
             /*
-             * Captures the user input and transmits the text payload to the backend.
+             * Send message payload to the server via POST request
              */
             const input = document.getElementById('msg-input');
             const text = input.value.trim();
             
-            // Prevent empty submissions
             if (!text) return;
 
             const payload = {
@@ -95,22 +134,26 @@
                 });
 
                 if (response.ok) {
-                    // Clear the input field upon successful transmission
                     input.value = ''; 
-                    // Immediately trigger a UI refresh to show the new message
                     fetchMessages(); 
                 } else {
-                    alert("Failed to send message. Please ensure you are logged in.");
+                    alert("Send failed.");
                 }
             } catch (error) {
-                console.error("Error sending message:", error);
+                console.error("Send error:", error);
             }
         }
 
-        // Establish long-polling: Fetch new messages from the server every 2 seconds
+        // Allow sending message by pressing Enter key
+        document.getElementById("msg-input").addEventListener("keypress", function(event) {
+            if (event.key === "Enter") {
+                event.preventDefault();
+                sendMessage();
+            }
+        });
+
+        // Polling setup
         setInterval(fetchMessages, 2000);
-        
-        // Initial fetch upon page load
         fetchMessages();
     </script>
 </body>

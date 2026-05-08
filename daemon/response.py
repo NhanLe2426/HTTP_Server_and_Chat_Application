@@ -93,7 +93,7 @@ class Response():
         #: Case-insensitive Dictionary of Response Headers.
         #: For example, ``headers['content-type']`` will return the
         #: value of a ``'Content-Type'`` response header.
-        self.headers = {}
+        self.headers = CaseInsensitiveDict()
 
         #: URL location of Response.
         self.url = None
@@ -298,17 +298,21 @@ class Response():
         print("[Response] Start build response with req {}".format(request))
 
         path = request.path
-        # Default to index.html for root requests
-        if path == '/':
-            path = '/index.html'  
-            request.path = path
 
         # Prioritize dynamic API content if provided
         if envelop_content:
             self._content = envelop_content
-            self.headers['Content-Type'] = 'application/json'
+            # Only set Content-Type to application/json if it's JSON content
+            # Otherwise, try to detect from headers or default to text/plain
+            if not self.headers.get('Content-Type'):
+                self.headers['Content-Type'] = 'text/plain; charset=utf-8'
         # Otherwise, attempt to serve a static file
         else:
+            # Default to index.html for root requests
+            if path == '/':
+                path = '/index.html'  
+                request.path = path
+
             if path.endswith('.html'):
                 base_dir = self.prepare_content_type('text/html')
             elif path.endswith('.css'):

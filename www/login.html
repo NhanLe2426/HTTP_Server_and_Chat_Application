@@ -1,8 +1,69 @@
-<html><body>
+<!-- <html><body>
 <h1>Login</h1>
 <form method="POST" action="/login">
   Username: <input name="username" type="text"><br>
   Password: <input name="password" type="password"><br>
   <input type="submit" value="Login">
 </form>
-</body></html>
+</body></html> -->
+
+<html>
+<head>
+    <title>Login - AsynapRous</title>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; }
+        .login-container { max-width: 300px; margin: 0 auto; padding: 20px; border: 1px solid #ccc; border-radius: 5px; }
+        input { width: 100%; margin-bottom: 10px; padding: 8px; box-sizing: border-box; }
+        button { width: 100%; padding: 10px; background-color: #38488f; color: white; border: none; cursor: pointer; }
+    </style>
+</head>
+<body>
+
+<div class="login-container">
+    <h1>Login</h1>
+    <form id="loginForm">
+        Username: <input name="username" type="text" id="username" required><br>
+        Password: <input name="password" type="password" id="password" required><br>
+        <button type="submit">Login</button>
+    </form>
+</div>
+
+<script>
+    document.getElementById('loginForm').addEventListener('submit', async function(e) {
+        // Prevent default HTML form submission
+        e.preventDefault(); 
+
+        // Gather form data and convert to JSON object
+        const formData = new FormData(this);
+        const jsonObject = {};
+        formData.forEach((value, key) => {
+            jsonObject[key] = value;
+        });
+
+        // Send JSON request via Fetch API
+        try {
+            const response = await fetch('/login', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(jsonObject)
+            });
+
+            if (response.ok) {
+                // Redirect to chat page on success
+                // Note: Change "/chat.html" to "/" if your chat route is configured differently
+                window.location.href = "/chat.html"; 
+            } else {
+                const errorText = await response.text();
+                alert("Login failed: " + errorText);
+            }
+        } catch (error) {
+            console.error('Error:', error);
+            alert("Network error occurred!");
+        }
+    });
+</script>
+
+</body>
+</html>
