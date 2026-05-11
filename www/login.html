@@ -30,18 +30,18 @@
 
 <script>
     document.getElementById('loginForm').addEventListener('submit', async function(e) {
-        // Prevent default HTML form submission
+        // Prevent default HTML form submission behavior
         e.preventDefault(); 
 
-        // Gather form data and convert to JSON object
+        // Extract data from input fields
         const formData = new FormData(this);
         const jsonObject = {};
         formData.forEach((value, key) => {
             jsonObject[key] = value;
         });
 
-        // Send JSON request via Fetch API
         try {
+            // Send request to the Backend API
             const response = await fetch('/login', {
                 method: 'POST',
                 headers: {
@@ -50,17 +50,24 @@
                 body: JSON.stringify(jsonObject)
             });
 
-            if (response.ok) {
-                // Redirect to chat page on success
-                // Note: Change "/chat.html" to "/" if your chat route is configured differently
+            // CRITICAL: Parse the JSON string returned from the Backend
+            const data = await response.json();
+
+            // Check the "status" field defined in our Python backend
+            if (data.status === "ok") {
+                // Save the username into the browser's session storage
+                // This allows chat.html to retrieve it without prompting again
+                sessionStorage.setItem('chatUser', jsonObject.username);
+            
+                // Redirect to the Chat page
                 window.location.href = "/chat.html"; 
             } else {
-                const errorText = await response.text();
-                alert("Login failed: " + errorText);
+                // Display error message if Python returns an error status
+                alert("Login failed: " + data.message);
             }
         } catch (error) {
             console.error('Error:', error);
-            alert("Network error occurred!");
+            alert("Network error occurred! Make sure the server is running.");
         }
     });
 </script>

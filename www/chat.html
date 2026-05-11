@@ -3,158 +3,406 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AsynapRous Web Chat</title>
+    <title>Hybrid Chat Application</title>
     <style>
-        /* CSS Reset and layout fixes */
+        /* ==========================================================================
+           CSS STYLING & LAYOUT
+           ========================================================================== */
         body { 
             font-family: Arial, sans-serif; 
             background-color: #f0f2f5; 
             margin: 0; 
-            padding: 20px; 
+            height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
         }
         .container {
-            max-width: 600px;
-            margin: 0 auto;
+            display: flex;
+            /* UI UPGRADE: Increased width and height for a more spacious layout */
+            width: 1100px;
+            max-width: 95vw;
+            height: 750px;
             background: white;
-            padding: 30px;
             border-radius: 10px;
             box-shadow: 0 4px 12px rgba(0,0,0,0.1);
-            box-sizing: border-box; /* Force padding to stay inside width */
+            overflow: hidden;
         }
-        h2 { text-align: center; color: #333; margin-top: 0; }
         
-        #chat-box {
-            height: 350px;
-            overflow-y: scroll;
-            border: 1px solid #ddd;
+        /* SIDEBAR: Channels List */
+        .sidebar {
+            width: 25%; /* Adjusted ratio for wider chat area */
+            background-color: #e9eaee;
+            border-right: 1px solid #ddd;
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* NEW UI FEATURE: User Profile Display Section */
+        .user-profile {
             padding: 15px;
-            text-align: left;
-            margin-bottom: 20px;
+            background-color: #0084ff;
+            color: white;
+            display: flex;
+            align-items: center;
+            font-weight: bold;
+            font-size: 1.1em;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            z-index: 10;
+        }
+        .user-avatar {
+            background-color: white;
+            color: #0084ff;
+            border-radius: 50%;
+            width: 35px;
+            height: 35px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            margin-right: 12px;
+            font-size: 1.2em;
+        }
+
+        .sidebar-header {
+            padding: 15px;
+            background-color: #38488f;
+            color: white;
+            text-align: center;
+            font-weight: bold;
+        }
+        #channel-list {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+            overflow-y: auto;
+        }
+        .channel-item {
+            padding: 15px;
+            cursor: pointer;
+            border-bottom: 1px solid #ddd;
+            transition: background 0.2s;
+            /* UI UPGRADE: Flexbox to align channel name and red dot */
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .channel-item:hover {
+            background-color: #d1d5db;
+        }
+        .channel-item.active {
+            background-color: #c0c6e0;
+            font-weight: bold;
+            border-left: 5px solid #38488f;
+        }
+
+        /* NEW UI FEATURE: Unread Notification Dot */
+        .unread-dot {
+            width: 10px;
+            height: 10px;
+            background-color: #ff3b30; /* Apple's notification red */
+            border-radius: 50%;
+            display: inline-block;
+            box-shadow: 0 0 3px rgba(0,0,0,0.3);
+        }
+        /* CHAT AREA */
+        .chat-area {
+            width: 75%; /* Adjusted ratio */
+            display: flex;
+            flex-direction: column;
+        }
+        .chat-header {
+            padding: 15px;
+            background-color: #fff;
+            border-bottom: 1px solid #ddd;
+            font-weight: bold;
+            font-size: 1.2em;
+            color: #333;
+        }
+        #chat-box {
+            flex-grow: 1;
+            padding: 20px;
+            overflow-y: auto;
             background: #fafafa;
-            border-radius: 5px;
-            box-sizing: border-box; /* Prevent overflow */
-            width: 100%;
+            display: flex;
+            flex-direction: column;
         }
-        .msg-line { margin-bottom: 10px; line-height: 1.4; word-wrap: break-word; }
-        .time-stamp { color: #888; font-size: 0.8em; margin-right: 5px; }
-        .sender-name { color: #38488f; font-weight: bold; margin-right: 5px; }
-        .msg-content { color: #333; }
         
-        .input-group { 
-            display: flex; 
-            gap: 10px; 
-            width: 100%; 
-            box-sizing: border-box; 
+        /* MESSAGE BUBBLES */
+        .msg-row {
+            display: flex;
+            margin-bottom: 12px;
         }
-        #msg-input { 
-            flex: 1; /* Auto-expand to fill available space */
-            padding: 12px; 
-            border: 1px solid #ccc; 
-            border-radius: 5px; 
-            box-sizing: border-box; 
-            font-size: 14px;
+        .msg-bubble {
+            max-width: 65%; /* Constrain bubble width for readability */
+            padding: 10px 15px;
+            border-radius: 15px;
+            line-height: 1.4;
+            font-size: 1.05em;
         }
-        button { 
-            padding: 12px 25px; 
-            cursor: pointer; 
-            background-color: #38488f; 
-            color: white; 
-            border: none; 
-            border-radius: 5px; 
-            font-weight: bold; 
+        .msg-info {
+            font-size: 0.8em;
+            color: #777;
+            margin-bottom: 5px;
+        }
+        
+        /* ALIGN RIGHT: My messages */
+        .my-msg {
+            justify-content: flex-end;
+        }
+        .my-msg .msg-bubble {
+            background-color: #0084ff;
+            color: white;
+            border-bottom-right-radius: 2px;
+        }
+        .my-msg .msg-info {
+            text-align: right;
+            color: #e0e0e0;
+        }
+        
+        /* ALIGN LEFT: Other peers' messages */
+        .other-msg {
+            justify-content: flex-start;
+        }
+        .other-msg .msg-bubble {
+            background-color: #e4e6eb;
+            color: black;
+            border-bottom-left-radius: 2px;
+        }
+
+        /* INPUT AREA */
+        .input-area {
+            display: flex;
+            padding: 15px;
+            border-top: 1px solid #ddd;
+            background: #fff;
+        }
+        #msg-input {
+            flex-grow: 1;
+            padding: 12px;
+            border: 1px solid #ccc;
+            border-radius: 25px;
+            outline: none;
+            font-size: 1em;
+        }
+        button {
+            margin-left: 10px;
+            padding: 10px 25px;
+            background-color: #0084ff;
+            color: white;
+            border: none;
+            border-radius: 25px;
+            cursor: pointer;
+            font-weight: bold;
+            font-size: 1em;
             transition: background 0.2s;
         }
-        button:hover { background-color: #2c3970; }
+        button:hover {
+            background-color: #006bce;
+        }
     </style>
 </head>
 <body>
-    <div class="container">
-        <h2>P2P Web Chat Room</h2>
-        
-        <div id="chat-box"></div>
-        
-        <div class="input-group">
-            <input type="text" id="msg-input" placeholder="Type your message here..." autocomplete="off">
+
+<div class="container">
+    <div class="sidebar">
+        <div class="user-profile">
+            <div class="user-avatar">👤</div>
+            <div id="current-user-display">Account: Loading...</div>
+        </div>
+
+        <div class="sidebar-header">
+            Active Chats
+        </div>
+        <ul id="channel-list">
+            </ul>
+    </div>
+
+    <div class="chat-area">
+        <div class="chat-header" id="current-channel-title">
+            🌐 Global (All)
+        </div>
+        <div id="chat-box">
+            </div>
+        <div class="input-area">
+            <input type="text" id="msg-input" placeholder="Type a message..." autocomplete="off">
             <button onclick="sendMessage()">Send</button>
         </div>
     </div>
+</div>
 
-    <script>
-        // Prompt for username on load, store in sessionStorage for current tab
-        const currentUser = sessionStorage.getItem('chatUser') || prompt("Enter your chat name:") || "Guest";
-        sessionStorage.setItem('chatUser', currentUser);
+<script>
+    /* ==========================================================================
+       FRONTEND LOGIC & API INTEGRATION
+       ========================================================================== */
+    
+    // Retrieve the current user from session storage
+    const currentUser = sessionStorage.getItem('chatUser');
+    if (!currentUser) {
+        window.location.href = '/login.html';
+    } else {
+        // Inject the active username into the top-left UI profile section
+        document.getElementById('current-user-display').innerText = `Account: ${currentUser}`;
+    }
 
-        async function fetchMessages() {
-            /*
-             * Fetch latest messages from the server via GET request
-             */
-            try {
-                const response = await fetch('/chat/messages', { method: 'GET' });
-                
-                if (response.ok) {
-                    const data = await response.json();
-                    const chatBox = document.getElementById('chat-box');
-                    
-                    chatBox.innerHTML = ''; 
-                    data.messages.forEach(msg => {
-                        const msgHtml = `<div class="msg-line">
-                            <span class="time-stamp">[${msg.timestamp}]</span>
-                            <span class="sender-name">${msg.sender}:</span>
-                            <span class="msg-content">${msg.text}</span>
-                        </div>`;
-                        chatBox.innerHTML += msgHtml;
-                    });
-                    
-                    chatBox.scrollTop = chatBox.scrollHeight;
-                }
-            } catch (error) {
-                console.error("Fetch error:", error);
+    let currentChannel = "Global";
+    // STATE VARIABLE: Keep track of how many messages we have seen in each channel
+    let knownCounts = {};
+
+    async function fetchChannels() {
+        try {
+            const response = await fetch('/api/channels');
+            if (response.status === 401) {
+                window.location.href = '/login.html';
+                return;
             }
-        }
-
-        async function sendMessage() {
-            /*
-             * Send message payload to the server via POST request
-             */
-            const input = document.getElementById('msg-input');
-            const text = input.value.trim();
+            const data = await response.json();
+            // Data is now an object: {"Global": 10, "Nghi": 2}
+            const channelsData = data.channels || {};
             
-            if (!text) return;
+            const listElement = document.getElementById('channel-list');
+            listElement.innerHTML = ''; 
 
-            const payload = {
-                username: currentUser,
-                text: text
-            };
-
-            try {
-                const response = await fetch('/chat/send', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(payload)
-                });
-
-                if (response.ok) {
-                    input.value = ''; 
-                    fetchMessages(); 
-                } else {
-                    alert("Send failed.");
+            // Loop through the dictionary keys (channel names) and values (message counts)
+            for (const [channel, count] of Object.entries(channelsData)) {
+                
+                // Initialize the counter for new channels
+                if (knownCounts[channel] === undefined) {
+                    knownCounts[channel] = count;
                 }
-            } catch (error) {
-                console.error("Send error:", error);
+
+                // Check if there are new messages while we are NOT looking at this channel
+                let hasUnread = false;
+                if (channel !== currentChannel && count > knownCounts[channel]) {
+                    hasUnread = true;
+                } else if (channel === currentChannel) {
+                    // If we are currently inside the channel, mark all messages as read
+                    knownCounts[channel] = count;
+                }
+
+                const li = document.createElement('li');
+                li.className = 'channel-item';
+                if (channel === currentChannel) {
+                    li.classList.add('active');
+                }
+                
+                // Create a span for the text so it aligns properly with the dot
+                const nameSpan = document.createElement('span');
+                nameSpan.innerText = channel === "Global" ? "🌐 Global (All)" : `👤 ${channel}`;
+                li.appendChild(nameSpan);
+
+                // Add the red dot if there are unread messages
+                if (hasUnread) {
+                    const dotSpan = document.createElement('span');
+                    dotSpan.className = 'unread-dot';
+                    li.appendChild(dotSpan);
+                }
+                
+                // Click handler to switch channels
+                li.onclick = () => {
+                    currentChannel = channel;
+                    // Mark as read immediately upon clicking
+                    knownCounts[channel] = count; 
+                    
+                    document.getElementById('current-channel-title').innerText = nameSpan.innerText;
+                    document.getElementById('chat-box').innerHTML = '';
+                    fetchChannels(); 
+                    fetchMessages(); 
+                };
+                listElement.appendChild(li);
             }
+        } catch (error) {
+            console.error("Error fetching channels:", error);
         }
+    }
 
-        // Allow sending message by pressing Enter key
-        document.getElementById("msg-input").addEventListener("keypress", function(event) {
-            if (event.key === "Enter") {
-                event.preventDefault();
-                sendMessage();
+    async function fetchMessages() {
+        try {
+            const response = await fetch('/chat/messages', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ channel: currentChannel })
+            });
+
+            if (response.status === 401) {
+                window.location.href = '/login.html';
+                return;
             }
-        });
 
-        // Polling setup
-        setInterval(fetchMessages, 2000);
-        fetchMessages();
-    </script>
+            const data = await response.json();
+            const chatBox = document.getElementById('chat-box');
+            chatBox.innerHTML = ''; 
+
+            if (data.messages) {
+                data.messages.forEach(msg => {
+                    const row = document.createElement('div');
+                    const bubble = document.createElement('div');
+                    const info = document.createElement('div');
+
+                    if (msg.sender === currentUser) {
+                        row.className = 'msg-row my-msg';
+                        info.innerHTML = `Me • ${msg.timestamp}`;
+                    } else {
+                        row.className = 'msg-row other-msg';
+                        info.innerHTML = `<b>${msg.sender}</b> • ${msg.timestamp}`;
+                    }
+
+                    bubble.className = 'msg-bubble';
+                    info.className = 'msg-info';
+                    bubble.appendChild(info);
+                    
+                    const textNode = document.createTextNode(msg.text);
+                    bubble.appendChild(textNode);
+                    
+                    row.appendChild(bubble);
+                    chatBox.appendChild(row);
+                });
+                
+                chatBox.scrollTop = chatBox.scrollHeight;
+            }
+        } catch (error) {
+            console.error("Error fetching messages:", error);
+        }
+    }
+
+    async function sendMessage() {
+        const input = document.getElementById('msg-input');
+        const text = input.value.trim();
+        if (!text) return;
+
+        const payload = {
+            text: text,
+            channel: currentChannel 
+        };
+
+        try {
+            const response = await fetch('/chat/send', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+
+            if (response.ok) {
+                input.value = ''; 
+                fetchMessages(); 
+            } else {
+                alert("Send failed.");
+            }
+        } catch (error) {
+            console.error("Send error:", error);
+        }
+    }
+
+    document.getElementById("msg-input").addEventListener("keypress", function(event) {
+        if (event.key === "Enter") {
+            event.preventDefault();
+            sendMessage();
+        }
+    });
+
+    setInterval(fetchChannels, 2000);
+    setInterval(fetchMessages, 2000);
+    fetchChannels();
+    fetchMessages();
+</script>
 </body>
 </html>
