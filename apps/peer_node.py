@@ -78,15 +78,15 @@ def update_peers():
         # print(f"[!] Fetch Peers Error: {e}")
         pass
 
-def send_p2p_worker(target_ip, target_port, sender, text, target="Global"):
+def send_p2p_worker(target_ip, target_port, sender, text, endpoint="/broadcast-peer"):
     """
     Worker thread to send HTTP POST request to another peer.
-    Includes the 'target' channel (Global or Private) in the payload.
+    The endpoint will be dynamically set to /broadcast-peer or /send-peer.
     """
-    url = f"http://{target_ip}:{target_port}/api/receive"
-    payload = json.dumps({"from": sender, "target": target, "msg": text}).encode('utf-8')
+    url = f"http://{target_ip}:{target_port}{endpoint}"
+    # Removed 'target' from payload to keep it clean for the spec
+    payload = json.dumps({"from": sender, "msg": text}).encode('utf-8')
     try:
-        # Method must be 'POST', headers must be explicitly declared
         req = urllib.request.Request(url, data=payload, method='POST', headers={'Content-Type': 'application/json'})
         urllib.request.urlopen(req, timeout=2)
     except Exception as e:
@@ -117,7 +117,7 @@ def serve_login(headers=None, body=None): return get_static_file("login.html")
 def serve_chat(headers=None, body=None): return get_static_file("chat.html")
 
 # =================================================================
-# CORE APIs (Aligned with your HTML files)
+# CORE APIs
 # =================================================================
 @app.route('/login', methods=['POST'])
 async def api_login(headers=None, body=None):
@@ -147,7 +147,7 @@ async def api_login(headers=None, body=None):
     
     return {"status": "error", "message": "Invalid request"}
 
-@app.route('/api/channels', methods=['GET'])
+@app.route('/get-list', methods=['GET'])
 @require_auth
 def api_get_channels(headers=None, body=None):
     """
@@ -166,7 +166,7 @@ def api_get_channels(headers=None, body=None):
         
     return {"channels": channel_info}
 
-@app.route('/chat/messages', methods=['POST'])
+@app.route('/get-messages', methods=['POST'])
 @require_auth
 def api_get_msg(headers=None, body=None):
     """
@@ -192,7 +192,7 @@ def api_get_msg(headers=None, body=None):
         print(f"[!] Get Messages Error: {e}")
         return {"error": "Invalid request"}
 
-@app.route('/chat/send', methods=['POST'])
+@app.route('/api/send-message', methods=['POST'])
 @require_auth
 def api_send(headers=None, body=None):
     """
@@ -209,9 +209,17 @@ def api_send(headers=None, body=None):
         # Extract verified identity from Cookie
         cookie_str = headers.get('cookie', headers.get('Cookie', ''))
         true_sender = "Unknown"
+        
+        # Split the cookie string into individual pairs
         for p in cookie_str.split(';'):
-            if 'session=' in p:
-                true_sender = p.split('session=')[1].strip()
+            # Remove leading/trailing whitespaces for accurate comparison
+            clean_p = p.strip() 
+            
+            # Use startswith() instead of 'in' to ensure we only catch 
+            # the exact 'session=' key, avoiding 'session_5001=' or others.
+            if clean_p.startswith('session='):
+                # Extract the username assigned during the login phase
+                true_sender = clean_p.split('session=')[1].strip()
                 break
                 
         now = datetime.datetime.now().strftime("%H:%M:%S")
@@ -227,47 +235,67 @@ def api_send(headers=None, body=None):
             # Broadcast to all peers
             for name, info in ACTIVE_PEERS.items():
                 if name != MY_NAME:
-                    threading.Thread(target=send_p2p_worker, args=(info['ip'], info['port'], true_sender, text, "Global")).start()
+                    # Pass "/broadcast-peer" as the endpoint
+                    threading.Thread(target=send_p2p_worker, args=(info['ip'], info['port'], true_sender, text, "/broadcast-peer")).start()
         else:
             # Unicast: Send directly to the specific peer
             if target_channel in ACTIVE_PEERS:
                 info = ACTIVE_PEERS[target_channel]
-                threading.Thread(target=send_p2p_worker, args=(info['ip'], info['port'], true_sender, text, target_channel)).start()
+                # Pass "/send-peer" as the endpoint
+                threading.Thread(target=send_p2p_worker, args=(info['ip'], info['port'], true_sender, text, "/send-peer")).start()
                 
         return {"status": "ok"}
     except Exception as e:
         print(f"[!] Send API Error: {e}")
         return {"status": "error"}
 
-@app.route('/api/receive', methods=['POST'])
-def api_receive(headers=None, body=None):
-    """
-    Receive incoming P2P messages and route them to the correct local channel.
-    """
+@app.route('/broadcast-peer', methods=['POST'])
+def api_broadcast_peer(headers=None, body=None):
+    """Handle incoming global broadcast messages."""
     try:
+        # Safely handle both bytes and str body payloads
         body_data = body.decode('utf-8') if isinstance(body, bytes) else body
         data = json.loads(body_data)
         
         sender = data['from']
-        target = data.get('target', 'Global')
         msg = data['msg']
         now = datetime.datetime.now().strftime("%H:%M:%S")
         
-        # Determine the correct local folder to store the message
-        if target == "Global":
-            save_channel = "Global"
-        else:
-            # If it is a private message sent to me, save it in the sender's folder
-            save_channel = sender
-            
-        if save_channel not in CHANNELS:
-            CHANNELS[save_channel] = []
-            
-        CHANNELS[save_channel].append({"from": sender, "msg": msg, "time": now})
+        CHANNELS["Global"].append({"from": sender, "msg": msg, "time": now})
         return {"status": "ok"}
     except Exception as e:
-        print(f"[!] Receive API Error: {e}")
+        # Print the error to the terminal for debugging
+        print(f"[!] Broadcast Receive Error: {e}")
         return {"status": "error"}
+
+@app.route('/send-peer', methods=['POST'])
+def api_send_peer(headers=None, body=None):
+    """Handle incoming private direct messages."""
+    try:
+        # Safely handle both bytes and str body payloads
+        body_data = body.decode('utf-8') if isinstance(body, bytes) else body
+        data = json.loads(body_data)
+        
+        sender = data['from']
+        msg = data['msg']
+        now = datetime.datetime.now().strftime("%H:%M:%S")
+        
+        if sender not in CHANNELS:
+            CHANNELS[sender] = []
+            
+        CHANNELS[sender].append({"from": sender, "msg": msg, "time": now})
+        return {"status": "ok"}
+    except Exception as e:
+        # Print the error to the terminal for debugging
+        print(f"[!] Send-Peer Receive Error: {e}")
+        return {"status": "error"}
+
+@app.route('/connect-peer', methods=['GET'])
+@require_auth
+def api_connect_peer(headers=None, body=None):
+    """Force a peer list refresh from the Tracker."""
+    update_peers()
+    return {"status": "ok", "message": "Synchronized with Tracker"}
 
 def tracker_sync_worker():
     """

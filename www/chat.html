@@ -250,7 +250,7 @@
 
     async function fetchChannels() {
         try {
-            const response = await fetch('/api/channels');
+            const response = await fetch('/get-list');
             if (response.status === 401) {
                 window.location.href = '/login.html';
                 return;
@@ -317,7 +317,7 @@
 
     async function fetchMessages() {
         try {
-            const response = await fetch('/chat/messages', {
+            const response = await fetch('/get-messages', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ channel: currentChannel })
@@ -375,7 +375,7 @@
         };
 
         try {
-            const response = await fetch('/chat/send', {
+            const response = await fetch('/api/send-message', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(payload)
