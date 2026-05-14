@@ -123,6 +123,8 @@ def serve_chat(headers=None, body=None): return get_static_file("chat.html")
 async def api_login(headers=None, body=None):
     """
     Handle user login and issue a session cookie.
+    Strictly enforce that the user logging in matches the node's owner (MY_NAME)
+    to prevent P2P identity mismatch and channel duplication.
     """
     try:
         # Extract username from the request body
@@ -132,7 +134,7 @@ async def api_login(headers=None, body=None):
         password = data.get('password', '')
         
         # Verify credentials
-        if username in VALID_USERS and VALID_USERS[username] == password:
+        if username == MY_NAME and username in VALID_USERS and VALID_USERS[username] == password:
             return {
                 "status": "ok", 
                 "message": "Login Successful",
