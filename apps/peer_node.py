@@ -11,6 +11,7 @@ import datetime
 current_dir = os.path.dirname(os.path.abspath(__file__))
 sys.path.append(os.path.dirname(current_dir))
 
+from concurrent.futures import ThreadPoolExecutor
 from daemon.asynaprous  import AsynapRous
 from        auth        import require_auth
 
@@ -20,6 +21,8 @@ MY_IP = "127.0.0.1"                            # Put your IP here:
 TRACKER_URL = "http://127.0.0.1:9000"          # http://<your IP>:9000
 
 app = AsynapRous()
+# Initialize a Thread Pool to limit maximum concurrent P2P sending tasks to 20
+executor = ThreadPoolExecutor(max_workers=20)
 CHANNELS = {"Global": []} 
 JOINED_CHANNELS = ["Global"]  # Track which group channels this node has subscribed to
 ACTIVE_PEERS = {}
@@ -258,12 +261,15 @@ def api_send(headers=None, body=None):
             # Broadcast to all peers, but tag it with the specific channel name
             for name, info in ACTIVE_PEERS.items():
                 if name != MY_NAME:
-                    threading.Thread(target=send_p2p_worker, args=(info['ip'], info['port'], true_sender, text, "/broadcast-peer", target_channel)).start()
+                    # threading.Thread(target=send_p2p_worker, args=(info['ip'], info['port'], true_sender, text, "/broadcast-peer", target_channel)).start()
+                    # IMPLEMENTED: ThreadPoolExecutor instead of raw threads
+                    executor.submit(send_p2p_worker, info['ip'], info['port'], true_sender, text, "/broadcast-peer", target_channel)
         else:
             # Unicast: Send directly to the specific peer
             if target_channel in ACTIVE_PEERS:
                 info = ACTIVE_PEERS[target_channel]
-                threading.Thread(target=send_p2p_worker, args=(info['ip'], info['port'], true_sender, text, "/send-peer", target_channel)).start()
+                # threading.Thread(target=send_p2p_worker, args=(info['ip'], info['port'], true_sender, text, "/send-peer", target_channel)).start()
+                executor.submit(send_p2p_worker, info['ip'], info['port'], true_sender, text, "/send-peer", target_channel)
                 
         return {"status": "ok"}
     except Exception as e:
@@ -353,7 +359,8 @@ def api_create_group(headers=None, body=None):
             if p in ACTIVE_PEERS:
                 info = ACTIVE_PEERS[p]
                 # Send to the new /invite-peer endpoint
-                threading.Thread(target=send_p2p_worker, args=(info['ip'], info['port'], true_sender, f"Invited to {channel}", "/invite-peer", channel)).start()
+                # threading.Thread(target=send_p2p_worker, args=(info['ip'], info['port'], true_sender, f"Invited to {channel}", "/invite-peer", channel)).start()
+                executor.submit(send_p2p_worker, info['ip'], info['port'], true_sender, f"Invited to {channel}", "/invite-peer", channel)
         
         return {"status": "ok"}
     except Exception as e:

@@ -460,7 +460,15 @@
             }
 
             const data = await response.json();
+            // ==========================================
+            // SMART AUTO-SCROLL LOGIC
+            // ==========================================
             const chatBox = document.getElementById('chat-box');
+            
+            // Check position BEFORE clearing and adding new messages
+            // If the distance from the top + visible height is very close to the total scroll height, we are at the bottom
+            const isNearBottom = chatBox.scrollHeight - chatBox.scrollTop <= chatBox.clientHeight + 50;
+
             chatBox.innerHTML = ''; 
 
             if (data.messages) {
@@ -488,7 +496,10 @@
                     chatBox.appendChild(row);
                 });
                 
-                chatBox.scrollTop = chatBox.scrollHeight;
+                // Only auto-scroll to the bottom if the user was already near the bottom
+                if (isNearBottom) {
+                    chatBox.scrollTop = chatBox.scrollHeight;
+                }
             }
         } catch (error) {
             console.error("Error fetching messages:", error);
