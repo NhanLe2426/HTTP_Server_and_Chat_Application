@@ -16,11 +16,12 @@ from        auth        import require_auth
 
 MY_NAME = sys.argv[1] if len(sys.argv) > 1 else "Nhan"
 MY_PORT = int(sys.argv[2]) if len(sys.argv) > 2 else 5001
-MY_IP = "127.0.0.1"                            # Put your IP here: 192.168.135.47
-TRACKER_URL = "http://127.0.0.1:9000"          # http://192.168.135.47:9000
+MY_IP = "127.0.0.1"                            # Put your IP here: 
+TRACKER_URL = "http://127.0.0.1:9000"          # http://<your IP>:9000
 
 app = AsynapRous()
 CHANNELS = {"Global": []} 
+JOINED_CHANNELS = ["Global"]  # Track which group channels this node has subscribed to
 ACTIVE_PEERS = {}
 
 VALID_USERS = {
@@ -78,14 +79,14 @@ def update_peers():
         # print(f"[!] Fetch Peers Error: {e}")
         pass
 
-def send_p2p_worker(target_ip, target_port, sender, text, endpoint="/broadcast-peer"):
+def send_p2p_worker(target_ip, target_port, sender, text, endpoint="/broadcast-peer", channel="Global"):
     """
     Worker thread to send HTTP POST request to another peer.
     The endpoint will be dynamically set to /broadcast-peer or /send-peer.
     """
     url = f"http://{target_ip}:{target_port}{endpoint}"
     # Removed 'target' from payload to keep it clean for the spec
-    payload = json.dumps({"from": sender, "msg": text}).encode('utf-8')
+    payload = json.dumps({"from": sender, "msg": text, "channel": channel}).encode('utf-8')
     try:
         req = urllib.request.Request(url, data=payload, method='POST', headers={'Content-Type': 'application/json'})
         urllib.request.urlopen(req, timeout=2)
@@ -149,6 +150,25 @@ async def api_login(headers=None, body=None):
     
     return {"status": "error", "message": "Invalid request"}
 
+@app.route('/add-list', methods=['POST'])
+@require_auth
+def api_add_list(headers=None, body=None):
+    """
+    Allows user to subscribe to a new group channel.
+    """
+    try:
+        body_data = body.decode('utf-8') if isinstance(body, bytes) else body
+        data = json.loads(body_data)
+        channel_name = data.get('channel', '').strip()
+        
+        if channel_name and channel_name not in JOINED_CHANNELS:
+            JOINED_CHANNELS.append(channel_name)
+            if channel_name not in CHANNELS:
+                CHANNELS[channel_name] = []
+        return {"status": "ok"}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
 @app.route('/get-list', methods=['GET'])
 @require_auth
 def api_get_channels(headers=None, body=None):
@@ -165,8 +185,10 @@ def api_get_channels(headers=None, body=None):
     # Iterate through all existing channels and count their messages
     for ch_name, msgs in CHANNELS.items():
         channel_info[ch_name] = len(msgs)
-        
-    return {"channels": channel_info}
+    
+    # Filter out our own name from the active peers list
+    peer_list = [p for p in ACTIVE_PEERS.keys() if p != MY_NAME]
+    return {"channels": channel_info, "peers": peer_list}
 
 @app.route('/get-messages', methods=['POST'])
 @require_auth
@@ -232,19 +254,16 @@ def api_send(headers=None, body=None):
             
         CHANNELS[target_channel].append({"from": true_sender, "msg": text, "time": now})
         
-        # ROUTING LOGIC
-        if target_channel == "Global":
-            # Broadcast to all peers
+        if target_channel == "Global" or target_channel.startswith("#"):
+            # Broadcast to all peers, but tag it with the specific channel name
             for name, info in ACTIVE_PEERS.items():
                 if name != MY_NAME:
-                    # Pass "/broadcast-peer" as the endpoint
-                    threading.Thread(target=send_p2p_worker, args=(info['ip'], info['port'], true_sender, text, "/broadcast-peer")).start()
+                    threading.Thread(target=send_p2p_worker, args=(info['ip'], info['port'], true_sender, text, "/broadcast-peer", target_channel)).start()
         else:
             # Unicast: Send directly to the specific peer
             if target_channel in ACTIVE_PEERS:
                 info = ACTIVE_PEERS[target_channel]
-                # Pass "/send-peer" as the endpoint
-                threading.Thread(target=send_p2p_worker, args=(info['ip'], info['port'], true_sender, text, "/send-peer")).start()
+                threading.Thread(target=send_p2p_worker, args=(info['ip'], info['port'], true_sender, text, "/send-peer", target_channel)).start()
                 
         return {"status": "ok"}
     except Exception as e:
@@ -261,9 +280,15 @@ def api_broadcast_peer(headers=None, body=None):
         
         sender = data['from']
         msg = data['msg']
+        channel = data.get('channel', 'Global')
         now = datetime.datetime.now().strftime("%H:%M:%S")
         
-        CHANNELS["Global"].append({"from": sender, "msg": msg, "time": now})
+        # PUB/SUB FILTER: Only accept message if we are subscribed to this channel
+        if channel in JOINED_CHANNELS:
+            if channel not in CHANNELS:
+                CHANNELS[channel] = []
+            CHANNELS[channel].append({"from": sender, "msg": msg, "time": now})
+            
         return {"status": "ok"}
     except Exception as e:
         # Print the error to the terminal for debugging
@@ -298,6 +323,58 @@ def api_connect_peer(headers=None, body=None):
     """Force a peer list refresh from the Tracker."""
     update_peers()
     return {"status": "ok", "message": "Synchronized with Tracker"}
+
+@app.route('/api/create-group', methods=['POST'])
+@require_auth
+def api_create_group(headers=None, body=None):
+    """UI Endpoint: Create a channel and invite selected peers."""
+    try:
+        body_data = body.decode('utf-8') if isinstance(body, bytes) else body
+        data = json.loads(body_data)
+        channel = data.get('channel', '').strip()
+        peers = data.get('peers', []) # List of selected peers
+
+        # 1. Join locally
+        if channel and channel not in JOINED_CHANNELS:
+            JOINED_CHANNELS.append(channel)
+            if channel not in CHANNELS:
+                CHANNELS[channel] = []
+        
+        # 2. Extract true sender from cookie
+        true_sender = "Unknown"
+        cookie_str = headers.get('cookie', headers.get('Cookie', ''))
+        for p in cookie_str.split(';'):
+            if p.strip().startswith('session='):
+                true_sender = p.split('session=')[1].strip()
+                break
+
+        # 3. Send P2P invitation to selected peers
+        for p in peers:
+            if p in ACTIVE_PEERS:
+                info = ACTIVE_PEERS[p]
+                # Send to the new /invite-peer endpoint
+                threading.Thread(target=send_p2p_worker, args=(info['ip'], info['port'], true_sender, f"Invited to {channel}", "/invite-peer", channel)).start()
+        
+        return {"status": "ok"}
+    except Exception as e:
+        return {"status": "error"}
+
+@app.route('/invite-peer', methods=['POST'])
+def api_invite_peer(headers=None, body=None):
+    """P2P Endpoint: Handle incoming group invitations."""
+    try:
+        body_data = body.decode('utf-8') if isinstance(body, bytes) else body
+        data = json.loads(body_data)
+        channel = data.get('channel')
+        
+        # Force join the channel upon receiving invite
+        if channel and channel.startswith("#") and channel not in JOINED_CHANNELS:
+            JOINED_CHANNELS.append(channel)
+            if channel not in CHANNELS:
+                CHANNELS[channel] = []
+        return {"status": "ok"}
+    except Exception as e:
+        return {"status": "error"}
 
 def tracker_sync_worker():
     """

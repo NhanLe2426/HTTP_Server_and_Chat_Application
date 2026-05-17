@@ -160,6 +160,10 @@ class HttpAdapter:
                 if isinstance(hook_result, dict):
                     data_dict = hook_result
                     body_bytes = json.dumps(hook_result).encode('utf-8')
+
+                    if data_dict.get("error") and "401" in str(data_dict.get("error")):
+                        resp.status_code = 401
+                        resp.reason = "Unauthorized"
                 elif isinstance(hook_result, str):
                     body_bytes = hook_result.encode('utf-8')
                     try:
@@ -245,6 +249,10 @@ class HttpAdapter:
                 if isinstance(hook_result, dict):
                     data_dict = hook_result
                     body_bytes = json.dumps(hook_result).encode('utf-8')
+
+                    if data_dict.get("error") and "401" in str(data_dict.get("error")):
+                        resp.status_code = 401
+                        resp.reason = "Unauthorized"
                 elif isinstance(hook_result, str):
                     body_bytes = hook_result.encode('utf-8')
                     try:
